@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Videollamadas</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161a21;
+    --accent: #4f8cff;
+    --accent-hover: #6ea0ff;
+    --text: #e8eaed;
+    --muted: #8a8f98;
+    --danger: #ff4f5e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 16px 24px;
+    background: var(--panel);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #23272f;
+  }
+  header h1 {
+    font-size: 18px;
+    margin: 0;
+    font-weight: 600;
+  }
+  #join-screen {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    padding: 24px;
+  }
+  #join-screen input {
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: 1px solid #2a2f3a;
+    background: #1c212b;
+    color: var(--text);
+    font-size: 15px;
+    width: 280px;
+    outline: none;
+  }
+  #join-screen input:focus { border-color: var(--accent); }
+  button {
+    padding: 12px 20px;
+    border-radius: 8px;
+    border: none;
+    background: var(--accent);
+    color: white;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover { background: var(--accent-hover); }
+  button.danger { background: var(--danger); }
+  button.danger:hover { background: #ff6b78; }
+  button.secondary { background: #2a2f3a; }
+  button.secondary:hover { background: #343a48; }
+
+  #call-screen {
+    display: none;
+    flex: 1;
+    flex-direction: column;
+  }
+  #videos {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+    padding: 16px;
+    overflow-y: auto;
+  }
+  .video-wrap {
+    position: relative;
+    background: #000;
+    border-radius: 12px;
+    overflow: hidden;
+    aspect-ratio: 16 / 9;
+  }
+  .video-wrap video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .video-label {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    background: rgba(0,0,0,0.55);
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text);
+  }
+  #controls {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    padding: 16px;
+    background: var(--panel);
+    border-top: 1px solid #23272f;
+  }
+  #room-badge {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .hint {
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+    max-width: 320px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📹 Videollamadas</h1>
+  <span id="room-badge"></span>
+</header>
+
+<div id="join-screen">
+  <input id="room-input" type="text" placeholder="Nombre de la sala (ej: familia)" />
+  <button id="join-btn">Entrar a la llamada</button>
+  <p class="hint">Compartí el mismo nombre de sala con quien quieras llamar. Ambos deben entrar a la misma sala.</p>
+</div>
+
+<div id="call-screen">
+  <div id="videos"></div>
+  <div id="controls">
+    <button id="mic-btn" class="secondary">🎤 Silenciar</button>
+    <button id="cam-btn" class="secondary">📷 Apagar cámara</button>
+    <button id="leave-btn" class="danger">📞 Salir</button>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const joinScreen = document.getElementById('join-screen');
+const callScreen = document.getElementById('call-screen');
+const videosDiv = document.getElementById('videos');
+const roomInput = document.getElementById('room-input');
+const joinBtn = document.getElementById('join-btn');
+const leaveBtn = document.getElementById('leave-btn');
+const micBtn = document.getElementById('mic-btn');
+const camBtn = document.getElementById('cam-btn');
+const roomBadge = document.getElementById('room-badge');
+
+const socket = io();
+let localStream = null;
+let roomId = null;
+const peers = {}; // socketId -> RTCPeerConnection
+let micOn = true;
+let camOn = true;
+
+const ICE_SERVERS = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ]
+};
+
+joinBtn.onclick = async () => {
+  const value = roomInput.value.trim();
+  if (!value) return alert('Poné un nombre de sala');
+  roomId = value;
+
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  } catch (err) {
+    alert('No se pudo acceder a la cámara/micrófono: ' + err.message);
+    return;
+  }
+
+  addVideoTile('local', localStream, 'Vos', true);
+
+  joinScreen.style.display = 'none';
+  callScreen.style.display = 'flex';
+  roomBadge.textContent = 'Sala: ' + roomId;
+
+  socket.emit('join-room', roomId);
+};
+
+leaveBtn.onclick = () => {
+  window.location.reload();
+};
+
+micBtn.onclick = () => {
+  micOn = !micOn;
+  localStream.getAudioTracks().forEach(t => t.enabled = micOn);
+  micBtn.textContent = micOn ? '🎤 Silenciar' : '🔇 Activar mic';
+};
+
+camBtn.onclick = () => {
+  camOn = !camOn;
+  localStream.getVideoTracks().forEach(t => t.enabled = camOn);
+  camBtn.textContent = camOn ? '📷 Apagar cámara' : '📷 Prender cámara';
+};
+
+function addVideoTile(id, stream, label, isLocal) {
+  const wrap = document.createElement('div');
+  wrap.className = 'video-wrap';
+  wrap.id = 'tile-' + id;
+
+  const video = document.createElement('video');
+  video.autoplay = true;
+  video.playsInline = true;
+  if (isLocal) video.muted = true;
+  video.srcObject = stream;
+
+  const tag = document.createElement('div');
+  tag.className = 'video-label';
+  tag.textContent = label;
+
+  wrap.appendChild(video);
+  wrap.appendChild(tag);
+  videosDiv.appendChild(wrap);
+}
+
+function removeVideoTile(id) {
+  const el = document.getElementById('tile-' + id);
+  if (el) el.remove();
+}
+
+function createPeerConnection(remoteId) {
+  const pc = new RTCPeerConnection(ICE_SERVERS);
+
+  localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.emit('signal', { to: remoteId, data: { type: 'ice', candidate: event.candidate } });
+    }
+  };
+
+  pc.ontrack = (event) => {
+    addVideoTile(remoteId, event.streams[0], 'Participante', false);
+  };
+
+  peers[remoteId] = pc;
+  return pc;
+}
+
+// Cuando ya había gente en la sala antes de que yo entre: les mando oferta
+socket.on('existing-users', async (userIds) => {
+  for (const remoteId of userIds) {
+    const pc = createPeerConnection(remoteId);
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit('signal', { to: remoteId, data: { type: 'offer', sdp: offer } });
+  }
+});
+
+// Cuando alguien nuevo se conecta después que yo, espero su oferta
+socket.on('user-connected', (remoteId) => {
+  createPeerConnection(remoteId);
+});
+
+socket.on('user-disconnected', (remoteId) => {
+  if (peers[remoteId]) {
+    peers[remoteId].close();
+    delete peers[remoteId];
+  }
+  removeVideoTile(remoteId);
+});
+
+socket.on('signal', async ({ from, data }) => {
+  let pc = peers[from];
+  if (!pc) pc = createPeerConnection(from);
+
+  if (data.type === 'offer') {
+    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.emit('signal', { to: from, data: { type: 'answer', sdp: answer } });
+  } else if (data.type === 'answer') {
+    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+  } else if (data.type === 'ice') {
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+    } catch (e) {
+      console.error('Error agregando ICE candidate', e);
+    }
+  }
+});
+</script>
+</body>
+</html>
