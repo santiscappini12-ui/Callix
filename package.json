@@ -1,7 +1,7 @@
 {
-  "name": "videocall-app",
-  "version": "1.0.0",
-  "description": "App simple de videollamadas (WebRTC + Socket.io) lista para Render",
+  "name": "callix",
+  "version": "2.0.0",
+  "description": "Callix - App de videollamadas con cuentas, chat, pantalla compartida y pizarra",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "express": "^4.19.2",
-    "socket.io": "^4.7.5"
+    "socket.io": "^4.7.5",
+    "express-session": "^1.18.0",
+    "bcryptjs": "^2.4.3"
   }
 }
